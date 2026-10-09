@@ -2,7 +2,7 @@
       "relation": ["delegate_permission/common.handle_all_urls"],
       "target": {
         "namespace": "android_app",
-        "package_name": "com.bdsis.greenscreen",
+        "package_name": "io.github.allanfern2000.twa",
         "sha256_cert_fingerprints": ["3F:7B:8A:CF:4B:DF:15:E2:60:97:FC:C2:BE:24:ED:F6:AC:08:CC:03:0D:BD:F3:90:F9:76:D6:85:1C:C8:D5:94"]
       }
     }]
