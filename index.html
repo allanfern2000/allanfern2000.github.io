@@ -44,8 +44,17 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)
 .rec{background:#d63a3a;color:#fff;border-color:#d63a3a;font-weight:600}
 #sheet{position:fixed;inset:0;background:rgba(0,0,0,.78);display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px));z-index:5}
 #sheet.on{display:flex}
-#sheet img,#sheet video{max-width:100%;max-height:68%;border-radius:12px;background:#000}
+#media{flex:1 1 0;min-height:0;width:100%;display:flex;align-items:center;justify-content:center}
+#sheet img,#sheet video{max-width:100%;max-height:100%;object-fit:contain;border-radius:12px;background:#000}
+#sheet .row{margin:0}
 #sheet .hint{color:#dfe6e3;font-size:13px;text-align:center}
+@media (orientation:landscape) and (max-height:560px){
+  main{max-width:none;display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:0 14px;align-items:start}
+  main>*{grid-column:2}
+  main>.stage{grid-column:1;grid-row:1/span 10;position:sticky;top:8px}
+  main>.cap{order:-1;margin-top:0}
+  h1{font-size:17px}.sub{display:none}
+}
 </style>
 </head>
 <body>
@@ -70,6 +79,7 @@ h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)
 <div class="card">
   <div class="sl"><span>Tolerance</span><input type="range" id="tol" min="8" max="90" value="40"></div>
   <div class="sl"><span>Softness</span><input type="range" id="soft" min="2" max="60" value="25"></div>
+  <div class="sl"><span>Frame</span><select id="fm"><option value="land">Landscape (16:9)</option><option value="full">Same as camera</option></select></div>
   <div class="sl"><span>Video quality</span><select id="vq"><option value="max">Maximum (up to 4K)</option><option value="1080">Full HD 1080p</option><option value="720">HD 720p</option></select></div>
   <div class="sl"><span>Mirror</span><input type="checkbox" id="mir" checked style="justify-self:start;accent-color:var(--acc)"></div>
 </div>
@@ -103,11 +113,11 @@ const bgc=document.createElement('canvas'),bgx=bgc.getContext('2d');
 const cam=$('#cam');
 // ---- GPU pipeline (WebGL) with automatic CPU fallback ----
 const FS=['#ifdef GL_FRAGMENT_PRECISION_HIGH','precision highp float;','#else','precision mediump float;','#endif',
-'varying vec2 v;uniform sampler2D cam,bg;uniform vec2 key,th;uniform float mir,on,gk;',
+'varying vec2 v;uniform sampler2D cam,bg;uniform vec2 key,th;uniform vec4 crop;uniform float mir,on,gk;',
 'void main(){',
 ' vec3 b=texture2D(bg,v).rgb;',
 ' if(on<.5){gl_FragColor=vec4(b,1.);return;}',
-' vec3 f=texture2D(cam,vec2(mir>.5?1.-v.x:v.x,v.y)).rgb;',
+' vec3 f=texture2D(cam,crop.xy+vec2(mir>.5?1.-v.x:v.x,v.y)*crop.zw).rgb;',
 ' float cb=-.169*f.r-.331*f.g+.5*f.b-key.x;',
 ' float cr=.5*f.r-.419*f.g-.081*f.b-key.y;',
 ' float a=clamp((length(vec2(cb,cr))-th.x)/(th.y-th.x),0.,1.);',
@@ -130,11 +140,11 @@ function initGL(g){
     g.texImage2D(g.TEXTURE_2D,0,g.RGBA,1,1,0,g.RGBA,g.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));return t};
   const tc=tex(0),tb=tex(1),U=n=>g.getUniformLocation(p,n);
   g.uniform1i(U('cam'),0);g.uniform1i(U('bg'),1);
-  return{g,tc,tb,u:{key:U('key'),th:U('th'),mir:U('mir'),on:U('on'),gk:U('gk')},lastOn:false};
+  return{g,tc,tb,u:{crop:U('crop'),key:U('key'),th:U('th'),mir:U('mir'),on:U('on'),gk:U('gk')},lastOn:false};
 }
 try{GL=initGL(cv.getContext('webgl',{alpha:false,antialias:false}))}catch(e){GL=null}
 if(!GL){const n=cv.cloneNode(false);cv.replaceWith(n);cv=n;ctx=cv.getContext('2d')}
-let lastT=-1,stream=null,facing='user',key=[0,177,64],picking=false,cur=0,recorder=null,recT=0,recTimer=null,dl=null,result=null;
+let lastT=-1,stream=null,facing=(()=>{try{return localStorage.getItem('gss-facing')||'environment'}catch(e){return 'environment'}})(),key=[0,177,64],picking=false,cur=0,recorder=null,recT=0,recTimer=null,dl=null,result=null;
 
 // ---- templates (drawn procedurally, so they work offline) ----
 const rnd=s=>()=>(s=s*16807%2147483647)/2147483647;
@@ -201,8 +211,9 @@ function fail(e){
   m.textContent=t;
   m.classList.add('on');
 }
+function lockLandscape(){try{if(screen.orientation&&screen.orientation.lock)screen.orientation.lock('landscape').catch(()=>{})}catch(e){}}
 async function startCam(){
-  stopCam();
+  stopCam();lockLandscape();
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){note('This browser cannot access the camera. Try Chrome or Safari over https.');return}
   const b=$('#start');b.disabled=true;b.textContent='Waiting for permission\u2026';
   note('Your browser is asking to use the camera. Choose Allow.');
@@ -214,13 +225,13 @@ async function startCam(){
   cam.srcObject=stream;await cam.play().catch(()=>{});
   ['flip','pick','shot','rec'].forEach(id=>$('#'+id).disabled=false);
   $('#start').textContent='⏹ Stop camera';note('');
-  if($('#mir').dataset.auto!=='0')$('#mir').checked=facing==='user';
+  if($('#mir').dataset.auto!=='0'){const st=stream.getVideoTracks()[0].getSettings?stream.getVideoTracks()[0].getSettings():{};$('#mir').checked=st.facingMode?st.facingMode==='user':true}
 }
 let mic=null;
-function stopCam(){if(recorder)recorder.stop();if(stream)stream.getTracks().forEach(t=>t.stop());if(mic)mic.getTracks().forEach(t=>t.stop());mic=null;stream=null;cam.srcObject=null;
+function stopCam(){try{if(screen.orientation&&screen.orientation.unlock)screen.orientation.unlock()}catch(e){}if(recorder)recorder.stop();if(stream)stream.getTracks().forEach(t=>t.stop());if(mic)mic.getTracks().forEach(t=>t.stop());mic=null;stream=null;cam.srcObject=null;
   ['flip','pick','shot','rec'].forEach(id=>$('#'+id).disabled=true);$('#start').textContent='▶ Start camera'}
 $('#start').onclick=()=>stream?stopCam():startCam();
-$('#flip').onclick=()=>{facing=facing==='user'?'environment':'user';startCam()};
+$('#flip').onclick=()=>{facing=facing==='user'?'environment':'user';try{localStorage.setItem('gss-facing',facing)}catch(e){}delete $('#mir').dataset.auto;startCam()};
 $('#mir').onchange=e=>{e.target.dataset.auto='0'};
 
 // ---- keying ----
@@ -244,10 +255,16 @@ function glDraw(on){
   const[kb,kr]=kcc(key),lo=+$('#tol').value,hi=lo+ +$('#soft').value;
   g.uniform2f(u.key,kb/255,kr/255);g.uniform2f(u.th,lo/255,hi/255);
   g.uniform1f(u.mir,$('#mir').checked?1:0);g.uniform1f(u.on,on?1:0);g.uniform1f(u.gk,key[1]>key[0]&&key[1]>key[2]?1:0);
+  if(on){const vw=cam.videoWidth,vh=cam.videoHeight,[sx,sy,sw,sh]=cropRect(vw,vh);g.uniform4f(u.crop,sx/vw,(vh-sy-sh)/vh,sw/vw,sh/vh)}
   g.viewport(0,0,cv.width,cv.height);g.drawArrays(g.TRIANGLE_STRIP,0,4);
   GL.lastOn=on;
 }
+function cropRect(vw,vh){ // [x,y,w,h] of the camera frame that is used
+  if($('#fm').value==='land'&&vh>vw){const sh=Math.round(vw*9/16)&~1;return[0,Math.floor((vh-sh)/2),vw,sh]}
+  return[0,0,vw,vh];
+}
 function applySize(vw,vh){
+  const c=cropRect(vw,vh);vw=c[2];vh=c[3];
   let W,H;
   if(hd){const k=Math.min(1,Math.sqrt(8.3e6/(vw*vh)));W=Math.floor(vw*k)&~1;H=Math.floor(vh*k)&~1}
   else{W=Math.min(1280,vw);H=Math.round(W*vh/vw)}
@@ -259,9 +276,9 @@ function frame(){
   if(live&&GL){lastT=cam.currentTime;applySize(cam.videoWidth,cam.videoHeight);glDraw(true)}
   else if(live){
     lastT=cam.currentTime;
-    const vw=cam.videoWidth,vh=cam.videoHeight,W=Math.min(640,vw),H=Math.round(W*vh/vw);
+    const [sx,sy,vw,vh]=cropRect(cam.videoWidth,cam.videoHeight),W=Math.min(640,vw),H=Math.round(W*vh/vw);
     if(cv.width!==W||cv.height!==H||fr.width!==W||fr.height!==H){cv.width=fr.width=W;cv.height=fr.height=H;renderBg()}
-    fx.clearRect(0,0,W,H);fx.save();if($('#mir').checked){fx.translate(W,0);fx.scale(-1,1)}fx.drawImage(cam,0,0,W,H);fx.restore();
+    fx.clearRect(0,0,W,H);fx.save();if($('#mir').checked){fx.translate(W,0);fx.scale(-1,1)}fx.drawImage(cam,sx,sy,vw,vh,0,0,W,H);fx.restore();
     const img=fx.getImageData(0,0,W,H);keyPixels(img.data);fx.putImageData(img,0,0);
     paintBg();ctx.drawImage(fr,0,0);
   }else if(GL)glDraw(false);else paintBg();
@@ -275,7 +292,7 @@ cv.addEventListener('click',e=>{
   const r=cv.getBoundingClientRect(),W=cv.width,H=cv.height;
   const x=Math.round((e.clientX-r.left)/r.width*W),y=Math.round((e.clientY-r.top)/r.height*H);
   const t=document.createElement('canvas');t.width=W;t.height=H;const c=t.getContext('2d');
-  if($('#mir').checked){c.translate(W,0);c.scale(-1,1)}c.drawImage(cam,0,0,W,H);
+  if($('#mir').checked){c.translate(W,0);c.scale(-1,1)}{const[sx,sy,sw,sh]=cropRect(cam.videoWidth,cam.videoHeight);c.drawImage(cam,sx,sy,sw,sh,0,0,W,H)}
   const s=6,px=c.getImageData(Math.max(0,Math.min(W-s,x-s/2)),Math.max(0,Math.min(H-s,y-s/2)),s,s).data;
   let R=0,G=0,B=0,n=px.length/4;for(let i=0;i<px.length;i+=4){R+=px[i];G+=px[i+1];B+=px[i+2]}
   key=[R/n,G/n,B/n];picking=false;$('#pick').classList.remove('on');note('');
@@ -315,7 +332,7 @@ $('#shot').onclick=async()=>{
   }finally{if(raised)await setRes(1280,720);shooting=false;note('')}
 };
 async function capture(){
-  let vw=cam.videoWidth,vh=cam.videoHeight;
+  const[csx,csy,csw,csh]=cropRect(cam.videoWidth,cam.videoHeight);let vw=csw,vh=csh;
   const MAXPX=16e6;if(vw*vh>MAXPX){const k=Math.sqrt(MAXPX/(vw*vh));vw=Math.floor(vw*k);vh=Math.floor(vh*k)}
   const o=document.createElement('canvas');o.width=vw;o.height=vh;const ox=o.getContext('2d');
   const t=T[cur];
@@ -324,7 +341,7 @@ async function capture(){
   else{const w0=640,h0=Math.round(640*vh/vw);ox.save();ox.scale(vw/w0,vh/h0);t.d(ox,w0,h0);ox.restore()}
   const f=document.createElement('canvas');f.width=vw;f.height=vh;const fc=f.getContext('2d',{willReadFrequently:true});
   if($('#mir').checked){fc.translate(vw,0);fc.scale(-1,1)}
-  fc.drawImage(cam,0,0,vw,vh);fc.setTransform(1,0,0,1,0,0);
+  fc.drawImage(cam,csx,csy,csw,csh,0,0,vw,vh);fc.setTransform(1,0,0,1,0,0);
   const im=fc.getImageData(0,0,vw,vh);keyPixels(im.data);fc.putImageData(im,0,0);
   ox.drawImage(f,0,0);
   o.toBlob(b=>b&&show('photo',b,'png',vw+' \u00d7 '+vh+' px'),'image/png');
