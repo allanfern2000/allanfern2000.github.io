@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Green Screen Studio</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1c9c55">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root{--bg:#f3f5f4;--fg:#15191c;--card:#fff;--line:#d8dedb;--acc:#1c9c55;--accfg:#fff;--mut:#5b6670;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#101413;--fg:#eef2f0;--card:#1a201e;--line:#2b3431;--acc:#34c777;--accfg:#06150c;--mut:#9aa8a2}}
+:root[data-theme="dark"]{--bg:#101413;--fg:#eef2f0;--card:#1a201e;--line:#2b3431;--acc:#34c777;--accfg:#06150c;--mut:#9aa8a2}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:14px 14px 28px}
+h1{font-size:19px;margin:0 0 2px}
+.sub{color:var(--mut);font-size:13px;margin:0 0 12px}
+.stage{position:relative;background:#000;border-radius:14px;overflow:hidden;border:1px solid var(--line)}
+canvas#out{display:block;width:100%;height:auto;touch-action:manipulation}
+.badge{position:absolute;left:10px;top:10px;background:rgba(0,0,0,.62);color:#fff;font-size:12px;padding:4px 9px;border-radius:99px;display:none}
+.badge.on{display:block}
+.msg{position:absolute;inset:auto 0 0 0;background:rgba(0,0,0,.65);color:#fff;font-size:13px;padding:8px 12px;display:none}
+.msg.on{display:block}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+button,label.btn{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:9px 13px;border-radius:10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+button.pri{background:var(--acc);color:var(--accfg);border-color:var(--acc);font-weight:600}
+button.on{outline:2px solid var(--acc)}
+button:disabled{opacity:.45}
+.sw{width:34px;height:34px;padding:0;border-radius:50%;border:2px solid var(--line)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0}
+.sl{display:grid;grid-template-columns:86px 1fr;align-items:center;gap:8px;font-size:13px;color:var(--mut)}
+.sl input{width:100%;accent-color:var(--acc)}
+select{font:inherit;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--fg);max-width:100%}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut);margin:14px 0 6px}
+.strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;-webkit-overflow-scrolling:touch}
+.tp{flex:0 0 auto;width:92px;text-align:center;font-size:12px;padding:4px;border-radius:10px;border:2px solid transparent;background:var(--card);cursor:pointer}
+.tp.sel{border-color:var(--acc)}
+.tp canvas{width:100%;height:auto;border-radius:6px;display:block;margin-bottom:3px}
+.cap{display:flex;gap:10px;justify-content:center;margin-top:12px}
+.cap button{flex:1;max-width:220px;justify-content:center;padding:13px}
+.rec{background:#d63a3a;color:#fff;border-color:#d63a3a;font-weight:600}
+#sheet{position:fixed;inset:0;background:rgba(0,0,0,.78);display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px));z-index:5}
+#sheet.on{display:flex}
+#sheet img,#sheet video{max-width:100%;max-height:68%;border-radius:12px;background:#000}
+#sheet .hint{color:#dfe6e3;font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<main>
+<h1>Green Screen Studio</h1>
+<p class="sub">Pick a background template, start the camera, and stand in front of a green screen. The background swaps in live.</p>
+
+<div class="stage">
+  <canvas id="out" width="640" height="360"></canvas>
+  <div class="badge" id="badge">● REC 0:00</div>
+  <div class="msg" id="msg"></div>
+</div>
+
+<div class="row">
+  <button class="pri" id="start">▶ Start camera</button>
+  <button id="flip" disabled>🔄 Flip</button>
+  <button id="pick" disabled>🎯 Pick color</button>
+  <button class="sw" id="kg" title="Green screen" style="background:#00b140"></button>
+  <button class="sw" id="kb" title="Blue screen" style="background:#0047bb"></button>
+</div>
+
+<div class="card">
+  <div class="sl"><span>Tolerance</span><input type="range" id="tol" min="8" max="90" value="40"></div>
+  <div class="sl"><span>Softness</span><input type="range" id="soft" min="2" max="60" value="25"></div>
+  <div class="sl"><span>Video quality</span><select id="vq"><option value="max">Maximum (up to 4K)</option><option value="1080">Full HD 1080p</option><option value="720">HD 720p</option></select></div>
+  <div class="sl"><span>Mirror</span><input type="checkbox" id="mir" checked style="justify-self:start;accent-color:var(--acc)"></div>
+</div>
+
+<h2>Templates</h2>
+<div class="strip" id="strip"></div>
+<div class="row"><label class="btn">＋ Add your own image or video<input id="file" type="file" accept="image/*,video/*" hidden></label></div>
+
+<div class="cap">
+  <button class="pri" id="shot" disabled>📷 Photo</button>
+  <button class="rec" id="rec" disabled>⏺ Record</button>
+</div>
+</main>
+
+<div id="sheet">
+  <div id="media"></div>
+  <div class="hint" id="hint"></div>
+  <div class="row">
+    <button class="pri" id="save">Save</button>
+    <button id="close">Close</button>
+  </div>
+</div>
+
+<video id="cam" playsinline muted autoplay hidden></video>
+
+<script>
+const $=s=>document.querySelector(s);
+let cv=$('#out'),ctx=null,GL=null,bgDirty=true,hd=false;
+const fr=document.createElement('canvas');fr.width=640;fr.height=360;const fx=fr.getContext('2d',{willReadFrequently:true});
+const bgc=document.createElement('canvas'),bgx=bgc.getContext('2d');
+const cam=$('#cam');
+// ---- GPU pipeline (WebGL) with automatic CPU fallback ----
+const FS=['#ifdef GL_FRAGMENT_PRECISION_HIGH','precision highp float;','#else','precision mediump float;','#endif',
+'varying vec2 v;uniform sampler2D cam,bg;uniform vec2 key,th;uniform float mir,on,gk;',
+'void main(){',
+' vec3 b=texture2D(bg,v).rgb;',
+' if(on<.5){gl_FragColor=vec4(b,1.);return;}',
+' vec3 f=texture2D(cam,vec2(mir>.5?1.-v.x:v.x,v.y)).rgb;',
+' float cb=-.169*f.r-.331*f.g+.5*f.b-key.x;',
+' float cr=.5*f.r-.419*f.g-.081*f.b-key.y;',
+' float a=clamp((length(vec2(cb,cr))-th.x)/(th.y-th.x),0.,1.);',
+' if(gk>.5&&a<1.)f.g=min(f.g,(f.r+f.b)*.5);',
+' gl_FragColor=vec4(mix(b,f,a),1.);',
+'}'].join('\n');
+function initGL(g){
+  const sh=(t,src)=>{const s=g.createShader(t);g.shaderSource(s,src);g.compileShader(s);if(!g.getShaderParameter(s,g.COMPILE_STATUS))throw new Error(g.getShaderInfoLog(s));return s};
+  const p=g.createProgram();
+  g.attachShader(p,sh(g.VERTEX_SHADER,'attribute vec2 a;varying vec2 v;void main(){v=a*.5+.5;gl_Position=vec4(a,0.,1.);}'));
+  g.attachShader(p,sh(g.FRAGMENT_SHADER,FS));
+  g.linkProgram(p);if(!g.getProgramParameter(p,g.LINK_STATUS))throw new Error('link failed');
+  g.useProgram(p);
+  g.bindBuffer(g.ARRAY_BUFFER,g.createBuffer());
+  g.bufferData(g.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),g.STATIC_DRAW);
+  const loc=g.getAttribLocation(p,'a');g.enableVertexAttribArray(loc);g.vertexAttribPointer(loc,2,g.FLOAT,false,0,0);
+  g.pixelStorei(g.UNPACK_FLIP_Y_WEBGL,true);
+  const tex=unit=>{const t=g.createTexture();g.activeTexture(g.TEXTURE0+unit);g.bindTexture(g.TEXTURE_2D,t);
+    [[g.TEXTURE_WRAP_S,g.CLAMP_TO_EDGE],[g.TEXTURE_WRAP_T,g.CLAMP_TO_EDGE],[g.TEXTURE_MIN_FILTER,g.LINEAR],[g.TEXTURE_MAG_FILTER,g.LINEAR]].forEach(([k,x])=>g.texParameteri(g.TEXTURE_2D,k,x));
+    g.texImage2D(g.TEXTURE_2D,0,g.RGBA,1,1,0,g.RGBA,g.UNSIGNED_BYTE,new Uint8Array([0,0,0,255]));return t};
+  const tc=tex(0),tb=tex(1),U=n=>g.getUniformLocation(p,n);
+  g.uniform1i(U('cam'),0);g.uniform1i(U('bg'),1);
+  return{g,tc,tb,u:{key:U('key'),th:U('th'),mir:U('mir'),on:U('on'),gk:U('gk')},lastOn:false};
+}
+try{GL=initGL(cv.getContext('webgl',{alpha:false,antialias:false}))}catch(e){GL=null}
+if(!GL){const n=cv.cloneNode(false);cv.replaceWith(n);cv=n;ctx=cv.getContext('2d')}
+let lastT=-1,stream=null,facing='user',key=[0,177,64],picking=false,cur=0,recorder=null,recT=0,recTimer=null,dl=null,result=null;
+
+// ---- templates (drawn procedurally, so they work offline) ----
+const rnd=s=>()=>(s=s*16807%2147483647)/2147483647;
+const lg=(c,x0,y0,x1,y1,stops)=>{const g=c.createLinearGradient(x0,y0,x1,y1);stops.forEach((s,i)=>g.addColorStop(i/(stops.length-1),s));return g};
+const T=[
+{n:'Space',d:(c,w,h)=>{c.fillStyle=lg(c,0,0,0,h,['#05061a','#2a1458']);c.fillRect(0,0,w,h);const r=rnd(7);c.fillStyle='#fff';for(let i=0;i<110;i++){c.globalAlpha=.35+r()*.65;c.fillRect(r()*w,r()*h,1+r()*1.6,1+r()*1.6)}c.globalAlpha=1;const p=c.createRadialGradient(w*.78,h*.3,2,w*.78,h*.3,h*.2);p.addColorStop(0,'#ffd28a');p.addColorStop(1,'#c2410c');c.fillStyle=p;c.beginPath();c.arc(w*.78,h*.3,h*.2,0,7);c.fill()}},
+{n:'Beach',d:(c,w,h)=>{c.fillStyle=lg(c,0,0,0,h*.55,['#5cc4f2','#cdeefc']);c.fillRect(0,0,w,h);c.fillStyle='#ffe27a';c.beginPath();c.arc(w*.8,h*.2,h*.1,0,7);c.fill();c.fillStyle=lg(c,0,h*.5,0,h*.75,['#1f9bd1','#0f6fa8']);c.fillRect(0,h*.5,w,h*.25);c.fillStyle=lg(c,0,h*.72,0,h,['#f3dfa2','#e2c379']);c.beginPath();c.moveTo(0,h*.75);c.quadraticCurveTo(w*.5,h*.66,w,h*.75);c.lineTo(w,h);c.lineTo(0,h);c.fill()}},
+{n:'Forest',d:(c,w,h)=>{c.fillStyle=lg(c,0,0,0,h,['#bfe6c8','#5aa468']);c.fillRect(0,0,w,h);const r=rnd(3);for(let k=0;k<2;k++){c.fillStyle=k?'#1f5a35':'#2d7a47';for(let i=0;i<9;i++){const x=(i+r()*.6)*w/8,t=h*(.35+k*.12+r()*.1),bw=w*.1;c.beginPath();c.moveTo(x,t);c.lineTo(x-bw,h*.88);c.lineTo(x+bw,h*.88);c.fill()}}c.fillStyle='#17432a';c.fillRect(0,h*.86,w,h*.14)}},
+{n:'Chalkboard',d:(c,w,h)=>{c.fillStyle=lg(c,0,0,0,h,['#d9c9a3','#b79d6d']);c.fillRect(0,0,w,h);c.fillStyle='#5a3d1e';c.fillRect(w*.06,h*.1,w*.88,h*.7);c.fillStyle='#24413a';c.fillRect(w*.08,h*.13,w*.84,h*.64);c.strokeStyle='rgba(255,255,255,.75)';c.lineWidth=Math.max(2,h*.012);c.lineCap='round';c.beginPath();c.moveTo(w*.15,h*.28);c.lineTo(w*.45,h*.28);c.moveTo(w*.15,h*.4);c.lineTo(w*.7,h*.4);c.moveTo(w*.15,h*.52);c.lineTo(w*.55,h*.52);c.stroke();c.fillStyle='#8a6a3a';c.fillRect(0,h*.9,w,h*.1)}},
+{n:'Stage',d:(c,w,h)=>{c.fillStyle=lg(c,0,0,0,h,['#1a0710','#3b0d1f']);c.fillRect(0,0,w,h);const s=c.createRadialGradient(w/2,h*.2,5,w/2,h*.8,h*.8);s.addColorStop(0,'rgba(255,230,160,.65)');s.addColorStop(1,'rgba(255,230,160,0)');c.fillStyle=s;c.fillRect(0,0,w,h);c.fillStyle='#8c1230';for(let i=0;i<7;i++){c.fillRect(i*w*.043,0,w*.025,h);c.fillRect(w-i*w*.043-w*.025,0,w*.025,h)}c.fillStyle='#4a2a14';c.fillRect(0,h*.86,w,h*.14)}},
+{n:'City',d:(c,w,h)=>{c.fillStyle=lg(c,0,0,0,h,['#2b2f6b','#f08a5d']);c.fillRect(0,0,w,h);const r=rnd(11);for(let k=0;k<2;k++){c.fillStyle=k?'#14162f':'#232650';for(let x=0;x<w;){const bw=w*(.05+r()*.06),bh=h*(.25+r()*.4)*(k?.8:1);c.fillRect(x,h-bh,bw-2,bh);if(k){c.fillStyle='#ffd36b';for(let y=h-bh+6;y<h-8;y+=14)for(let xx=x+5;xx<x+bw-8;xx+=11)if(r()>.55)c.fillRect(xx,y,4,6);c.fillStyle='#14162f'}x+=bw}}}}
+];
+
+function cover(c,src,sw,sh,w,h){const s=Math.max(w/sw,h/sh);c.drawImage(src,(w-sw*s)/2,(h-sh*s)/2,sw*s,sh*s)}
+function renderBg(){ // cache static backgrounds at the current canvas size
+  const w=cv.width,h=cv.height,t=T[cur];
+  if(bgc.width!==w||bgc.height!==h){bgc.width=w;bgc.height=h}
+  bgDirty=true;
+  if(t.vid)return;
+  bgx.clearRect(0,0,w,h);
+  if(t.img)cover(bgx,t.img,t.img.naturalWidth,t.img.naturalHeight,w,h);
+  else{const w0=640,h0=Math.round(640*h/w);bgx.save();bgx.scale(w/w0,h/h0);t.d(bgx,w0,h0);bgx.restore()}
+}
+function paintBg(){
+  if(GL){glDraw(false);return}
+  const t=T[cur],w=cv.width,h=cv.height;
+  if(t.vid&&t.vid.readyState>=2){ctx.fillStyle='#000';ctx.fillRect(0,0,w,h);cover(ctx,t.vid,t.vid.videoWidth,t.vid.videoHeight,w,h)}
+  else ctx.drawImage(bgc,0,0)
+}
+
+// ---- template strip ----
+function addTile(t,i){
+  const el=document.createElement('div');el.className='tp'+(i===cur?' sel':'');
+  const c=document.createElement('canvas');c.width=96;c.height=54;
+  const x=c.getContext('2d');
+  if(t.d)t.d(x,96,54);else if(t.img)cover(x,t.img,t.img.naturalWidth,t.img.naturalHeight,96,54);else{x.fillStyle='#333';x.fillRect(0,0,96,54);x.fillStyle='#fff';x.font='22px sans-serif';x.fillText('🎬',36,36)}
+  el.append(c,document.createTextNode(t.n));
+  el.onclick=()=>choose(i);
+  $('#strip').append(el);
+}
+function choose(i){cur=i;document.querySelectorAll('.tp').forEach((e,j)=>e.classList.toggle('sel',j===i));renderBg();if(!stream)paintBg()}
+T.forEach(addTile);
+
+$('#file').onchange=e=>{
+  const f=e.target.files[0];if(!f)return;
+  const u=URL.createObjectURL(f),t={n:f.name.replace(/\.[^.]+$/,'').slice(0,12)||'Mine'};
+  if(f.type.startsWith('video')){
+    const v=document.createElement('video');v.src=u;v.loop=true;v.muted=true;v.playsInline=true;
+    v.play().catch(()=>{});t.vid=v;
+  }else{t.img=new Image();t.img.onload=()=>{renderBg();if(!stream)paintBg();refreshTile(T.length-1)};t.img.src=u}
+  T.push(t);addTile(t,T.length-1);choose(T.length-1);
+  e.target.value='';
+};
+function refreshTile(i){const el=$('#strip').children[i];if(!el)return;const c=el.querySelector('canvas').getContext('2d'),t=T[i];if(t.img)cover(c,t.img,t.img.naturalWidth,t.img.naturalHeight,96,54)}
+
+// ---- camera ----
+function note(s){const m=$('#msg');m.textContent=s||'';m.classList.toggle('on',!!s)}
+function fail(e){
+  const n=e&&e.name,m=$('#msg');
+  let t='Could not start the camera ('+(n||'error')+').';
+  if(n==='NotAllowedError'||n==='SecurityError')t='Camera access was blocked. Tap the camera/lock icon in your browser\u2019s address bar, set Camera to Allow, then tap Start camera again. If you installed the app, also check Android Settings \u2192 Apps \u2192 Green Screen \u2192 Permissions \u2192 Camera.';
+  else if(n==='NotFoundError'||n==='OverconstrainedError')t='No camera was found on this device.';
+  else if(n==='NotReadableError')t='The camera is being used by another app. Close it and try again.';
+  m.textContent=t;
+  m.classList.add('on');
+}
+async function startCam(){
+  stopCam();
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){note('This browser cannot access the camera. Try Chrome or Safari over https.');return}
+  const b=$('#start');b.disabled=true;b.textContent='Waiting for permission\u2026';
+  note('Your browser is asking to use the camera. Choose Allow.');
+  try{
+    // Video only here, so the browser shows a single camera prompt. The mic is requested later, when you record.
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}}});
+  }catch(e){b.disabled=false;b.textContent='▶ Start camera';fail(e);return}
+  b.disabled=false;
+  cam.srcObject=stream;await cam.play().catch(()=>{});
+  ['flip','pick','shot','rec'].forEach(id=>$('#'+id).disabled=false);
+  $('#start').textContent='⏹ Stop camera';note('');
+  if($('#mir').dataset.auto!=='0')$('#mir').checked=facing==='user';
+}
+let mic=null;
+function stopCam(){if(recorder)recorder.stop();if(stream)stream.getTracks().forEach(t=>t.stop());if(mic)mic.getTracks().forEach(t=>t.stop());mic=null;stream=null;cam.srcObject=null;
+  ['flip','pick','shot','rec'].forEach(id=>$('#'+id).disabled=true);$('#start').textContent='▶ Start camera'}
+$('#start').onclick=()=>stream?stopCam():startCam();
+$('#flip').onclick=()=>{facing=facing==='user'?'environment':'user';startCam()};
+$('#mir').onchange=e=>{e.target.dataset.auto='0'};
+
+// ---- keying ----
+const kcc=([r,g,b])=>[-.169*r-.331*g+.5*b,.5*r-.419*g-.081*b];
+function keyPixels(d){
+  const [kb,kr]=kcc(key),lo=+$('#tol').value,hi=lo+ +$('#soft').value,lo2=lo*lo,hi2=hi*hi,greenKey=key[1]>key[0]&&key[1]>key[2];
+  for(let i=0;i<d.length;i+=4){
+    const r=d[i],g=d[i+1],b=d[i+2];
+    const cb=-.169*r-.331*g+.5*b-kb,cr=.5*r-.419*g-.081*b-kr,d2=cb*cb+cr*cr;
+    const a=d2<=lo2?0:d2>=hi2?1:(Math.sqrt(d2)-lo)/(hi-lo);
+    d[i+3]=a*255;
+    if(greenKey&&a<1){const m=(r+b)>>1;if(g>m)d[i+1]=m}
+  }
+}
+function glDraw(on){
+  const{g,tc,tb,u}=GL,t=T[cur],isVid=t.vid&&t.vid.readyState>=2;
+  if(!on&&!bgDirty&&!GL.lastOn&&!isVid)return; // idle and nothing changed
+  if(isVid){bgx.fillStyle='#000';bgx.fillRect(0,0,bgc.width,bgc.height);cover(bgx,t.vid,t.vid.videoWidth,t.vid.videoHeight,bgc.width,bgc.height);bgDirty=true}
+  if(bgDirty){g.activeTexture(g.TEXTURE1);g.bindTexture(g.TEXTURE_2D,tb);g.texImage2D(g.TEXTURE_2D,0,g.RGBA,g.RGBA,g.UNSIGNED_BYTE,bgc);bgDirty=false}
+  if(on){g.activeTexture(g.TEXTURE0);g.bindTexture(g.TEXTURE_2D,tc);g.texImage2D(g.TEXTURE_2D,0,g.RGBA,g.RGBA,g.UNSIGNED_BYTE,cam)}
+  const[kb,kr]=kcc(key),lo=+$('#tol').value,hi=lo+ +$('#soft').value;
+  g.uniform2f(u.key,kb/255,kr/255);g.uniform2f(u.th,lo/255,hi/255);
+  g.uniform1f(u.mir,$('#mir').checked?1:0);g.uniform1f(u.on,on?1:0);g.uniform1f(u.gk,key[1]>key[0]&&key[1]>key[2]?1:0);
+  g.viewport(0,0,cv.width,cv.height);g.drawArrays(g.TRIANGLE_STRIP,0,4);
+  GL.lastOn=on;
+}
+function applySize(vw,vh){
+  let W,H;
+  if(hd){const k=Math.min(1,Math.sqrt(8.3e6/(vw*vh)));W=Math.floor(vw*k)&~1;H=Math.floor(vh*k)&~1}
+  else{W=Math.min(1280,vw);H=Math.round(W*vh/vw)}
+  if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H;renderBg()}
+}
+function frame(){
+  const live=stream&&cam.readyState>=2&&cam.videoWidth;
+  if(live&&cam.currentTime===lastT){requestAnimationFrame(frame);return}
+  if(live&&GL){lastT=cam.currentTime;applySize(cam.videoWidth,cam.videoHeight);glDraw(true)}
+  else if(live){
+    lastT=cam.currentTime;
+    const vw=cam.videoWidth,vh=cam.videoHeight,W=Math.min(640,vw),H=Math.round(W*vh/vw);
+    if(cv.width!==W||cv.height!==H||fr.width!==W||fr.height!==H){cv.width=fr.width=W;cv.height=fr.height=H;renderBg()}
+    fx.clearRect(0,0,W,H);fx.save();if($('#mir').checked){fx.translate(W,0);fx.scale(-1,1)}fx.drawImage(cam,0,0,W,H);fx.restore();
+    const img=fx.getImageData(0,0,W,H);keyPixels(img.data);fx.putImageData(img,0,0);
+    paintBg();ctx.drawImage(fr,0,0);
+  }else if(GL)glDraw(false);else paintBg();
+  requestAnimationFrame(frame);
+}
+
+// pick key color by tapping the preview
+$('#pick').onclick=()=>{picking=!picking;$('#pick').classList.toggle('on',picking);note(picking?'Tap the green screen in the preview to set the key color':'')};
+cv.addEventListener('click',e=>{
+  if(!picking||!stream)return;
+  const r=cv.getBoundingClientRect(),W=cv.width,H=cv.height;
+  const x=Math.round((e.clientX-r.left)/r.width*W),y=Math.round((e.clientY-r.top)/r.height*H);
+  const t=document.createElement('canvas');t.width=W;t.height=H;const c=t.getContext('2d');
+  if($('#mir').checked){c.translate(W,0);c.scale(-1,1)}c.drawImage(cam,0,0,W,H);
+  const s=6,px=c.getImageData(Math.max(0,Math.min(W-s,x-s/2)),Math.max(0,Math.min(H-s,y-s/2)),s,s).data;
+  let R=0,G=0,B=0,n=px.length/4;for(let i=0;i<px.length;i+=4){R+=px[i];G+=px[i+1];B+=px[i+2]}
+  key=[R/n,G/n,B/n];picking=false;$('#pick').classList.remove('on');note('');
+});
+$('#kg').onclick=()=>key=[0,177,64];
+$('#kb').onclick=()=>key=[0,71,187];
+
+// ---- capture ----
+function show(kind,blob,ext,info){
+  result={blob,ext,kind};const u=URL.createObjectURL(blob),m=$('#media');m.innerHTML='';
+  const el=document.createElement(kind==='photo'?'img':'video');el.src=u;
+  if(kind==='video'){el.controls=true;el.playsInline=true;el.loop=true;el.autoplay=true;el.muted=true}
+  m.append(el);
+  $('#save').style.display='';
+  $('#hint').textContent=(info?info+'. ':'')+(dl?'':'Tap Save to download it to your device.');
+  $('#sheet').classList.add('on');
+}
+$('#close').onclick=()=>{$('#sheet').classList.remove('on');$('#media').innerHTML='';result=null};
+$('#save').onclick=async()=>{
+  if(!result)return;
+  const name='green-screen-'+Date.now()+'.'+result.ext;
+  if(dl){try{await dl.save({filename:name,data:result.blob})}catch(e){if(e.code!=='declined')$('#hint').textContent='Could not save: '+(e.message||e.code)}return}
+  const a=document.createElement('a');a.href=URL.createObjectURL(result.blob);a.download=name;document.body.append(a);a.click();a.remove();
+  $('#hint').textContent='Saved to your Downloads folder as '+name;
+};
+const setRes=async(w,h)=>{try{await stream.getVideoTracks()[0].applyConstraints({width:{ideal:w},height:{ideal:h}})}catch(e){}};
+const waitFrames=n=>new Promise(res=>{if(!cam.requestVideoFrameCallback){setTimeout(res,800);return}let c=0;const f=()=>{++c>=n?res():cam.requestVideoFrameCallback(f)};cam.requestVideoFrameCallback(f);setTimeout(res,1800)});
+let shooting=false;
+$('#shot').onclick=async()=>{
+  if(!stream||!cam.videoWidth||shooting)return;
+  shooting=true;note('Capturing at full resolution\u2026');
+  let raised=false;
+  try{
+    const cp=!recorder&&stream.getVideoTracks()[0].getCapabilities?stream.getVideoTracks()[0].getCapabilities():null;
+    if(cp&&cp.width&&cp.height){await setRes(cp.width.max,cp.height.max);raised=true;await waitFrames(4)}
+    await capture();
+  }finally{if(raised)await setRes(1280,720);shooting=false;note('')}
+};
+async function capture(){
+  let vw=cam.videoWidth,vh=cam.videoHeight;
+  const MAXPX=16e6;if(vw*vh>MAXPX){const k=Math.sqrt(MAXPX/(vw*vh));vw=Math.floor(vw*k);vh=Math.floor(vh*k)}
+  const o=document.createElement('canvas');o.width=vw;o.height=vh;const ox=o.getContext('2d');
+  const t=T[cur];
+  if(t.vid&&t.vid.readyState>=2){ox.fillStyle='#000';ox.fillRect(0,0,vw,vh);cover(ox,t.vid,t.vid.videoWidth,t.vid.videoHeight,vw,vh)}
+  else if(t.img)cover(ox,t.img,t.img.naturalWidth,t.img.naturalHeight,vw,vh);
+  else{const w0=640,h0=Math.round(640*vh/vw);ox.save();ox.scale(vw/w0,vh/h0);t.d(ox,w0,h0);ox.restore()}
+  const f=document.createElement('canvas');f.width=vw;f.height=vh;const fc=f.getContext('2d',{willReadFrequently:true});
+  if($('#mir').checked){fc.translate(vw,0);fc.scale(-1,1)}
+  fc.drawImage(cam,0,0,vw,vh);fc.setTransform(1,0,0,1,0,0);
+  const im=fc.getImageData(0,0,vw,vh);keyPixels(im.data);fc.putImageData(im,0,0);
+  ox.drawImage(f,0,0);
+  o.toBlob(b=>b&&show('photo',b,'png',vw+' \u00d7 '+vh+' px'),'image/png');
+}
+let recBusy=false,recRaised=false;
+async function raiseCam(){
+  const tr=stream.getVideoTracks()[0],cp=tr.getCapabilities?tr.getCapabilities():null;
+  if(!cp||!cp.width||!cp.height)return false;
+  const q=$('#vq').value;let w=cp.width.max,h=cp.height.max;
+  if(q==='1080'){w=Math.min(w,1920);h=Math.min(h,1080)}else if(q==='720'){w=1280;h=720}
+  await setRes(w,h);await waitFrames(4);return true;
+}
+$('#rec').onclick=async()=>{
+  if(recorder){recorder.stop();return}
+  if(!window.MediaRecorder){note('Recording is not supported in this browser.');return}
+  if(recBusy)return;recBusy=true;
+  try{
+    if(!mic){try{mic=await navigator.mediaDevices.getUserMedia({audio:true})}catch(e){note('Microphone not allowed, so this video will have no sound.');setTimeout(()=>note(''),3500)}}
+    if(!stream)return;
+    recRaised=false;
+    if(GL){note('Switching the camera to its highest resolution\u2026');recRaised=await raiseCam();hd=true;applySize(cam.videoWidth,cam.videoHeight);note('')}
+    const out=cv.captureStream(30);if(mic)mic.getAudioTracks().forEach(t=>out.addTrack(t));
+    const mt=['video/mp4','video/webm;codecs=vp9,opus','video/webm'].find(m=>MediaRecorder.isTypeSupported(m))||'';
+    const res=cv.width+' \u00d7 '+cv.height,bps=Math.round(Math.min(60e6,Math.max(5e6,cv.width*cv.height*30*.12)));
+    const chunks=[];recorder=new MediaRecorder(out,Object.assign(mt?{mimeType:mt}:{},{videoBitsPerSecond:bps}));
+    recorder.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+    recorder.onstop=()=>{clearInterval(recTimer);$('#badge').classList.remove('on');$('#rec').textContent='\u23fa Record';
+      const type=recorder.mimeType||mt||'video/webm';recorder=null;
+      if(GL){hd=false;if(recRaised)setRes(1280,720)}
+      show('video',new Blob(chunks,{type}),type.includes('mp4')?'mp4':'webm',res+' px')};
+    recorder.start(500);recT=0;$('#badge').classList.add('on');$('#badge').textContent='\u25cf REC 0:00 \u00b7 '+res;$('#rec').textContent='\u23f9 Stop';
+    recTimer=setInterval(()=>{recT++;$('#badge').textContent='\u25cf REC '+Math.floor(recT/60)+':'+String(recT%60).padStart(2,'0')+' \u00b7 '+res},1000);
+  }finally{recBusy=false}
+};
+
+
+// ---- init ----
+if(!GL){$('#vq').disabled=true;$('#vq').title='Needs WebGL; recording runs at preview size on this device'}
+renderBg();frame();note('Tap "Start camera". Your browser will ask for permission to use the camera.');
+(async()=>{try{dl=await window.claude.use('downloads')}catch(e){dl=null}})();
+if('serviceWorker' in navigator&&location.protocol.startsWith('http'))navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>

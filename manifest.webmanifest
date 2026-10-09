@@ -1,0 +1,16 @@
+{
+  "name": "Green Screen Studio",
+  "short_name": "Green Screen",
+  "description": "Live green screen camera with ready-made backgrounds. Take photos and record videos.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#101413",
+  "theme_color": "#1c9c55",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
